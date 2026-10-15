@@ -42,7 +42,11 @@ const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
 
 // ---------- Email setup ----------
 const transporter = nodemailer.createTransport({
-  service: "gmail",
+  host: "smtp.gmail.com",
+  port: 465,
+  secure: true,
+  family: 4,
+  connectionTimeout: 10000,
   auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS }
 });
 
