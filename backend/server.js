@@ -6,7 +6,6 @@ const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
-const nodemailer = require("nodemailer");
 const multer = require("multer"); // PHOTO
 const sharp = require("sharp"); // PHOTO
 const { GoogleGenerativeAI } = require("@google/generative-ai");
@@ -40,16 +39,7 @@ function handleUpload(req, res, next) {
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
 
-// ---------- Email setup ----------
-const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 465,
-  secure: true,
-  family: 4,
-  connectionTimeout: 10000,
-  auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS }
-});
-
+// ---------- Email setup (Brevo HTTPS API, works on Render free plan) ----------
 function getReceivers(category) {
   const map = {
     Ragging: process.env.ALERT_PRINCIPAL,
@@ -63,12 +53,29 @@ function getReceivers(category) {
 }
 
 async function sendMail(to, subject, text) {
-  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS || !to) {
+  if (!process.env.BREVO_API_KEY || !process.env.EMAIL_USER || !to) {
     console.log("Email not configured, skipping");
     return false;
   }
   try {
-    await transporter.sendMail({ from: process.env.EMAIL_USER, to, subject, text });
+    const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: {
+        "api-key": process.env.BREVO_API_KEY,
+        "Content-Type": "application/json",
+        accept: "application/json"
+      },
+      body: JSON.stringify({
+        sender: { name: "Grievance Portal", email: process.env.EMAIL_USER },
+        to: String(to).split(",").map((e) => ({ email: e.trim() })),
+        subject,
+        textContent: text
+      })
+    });
+    if (!res.ok) {
+      console.error("Email failed:", res.status, await res.text());
+      return false;
+    }
     return true;
   } catch (err) {
     console.error("Email failed:", err.message);
@@ -483,7 +490,7 @@ app.post("/api/auth/send-code", async (req, res) => {
     );
     if (!ok) {
       return res.status(500).json({
-        message: "Could not send the email. Check EMAIL_USER and EMAIL_PASS on the server."
+        message: "Could not send the email. Please try again in a moment."
       });
     }
 
@@ -830,7 +837,7 @@ app.patch("/api/complaints/:id/status", requireAdmin, async (req, res) => {
           complaint.notifyEmail = null;
           complaint.notifyName = null;
         } else {
-          console.log("[email] FAILED to send. Check the 'Email failed' line above and EMAIL_USER / EMAIL_PASS in .env.");
+          console.log("[email] FAILED to send. Check the 'Email failed' line above and BREVO_API_KEY / EMAIL_USER on Render.");
         }
       }
     }
